@@ -1,0 +1,4 @@
+Usage:
+
+make
+./lex.out testfile

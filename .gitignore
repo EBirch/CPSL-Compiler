@@ -1,0 +1,8 @@
+CPSL.output
+CPSL.tab.*
+*.tar
+bisontest
+*.out
+lex.yy.c
+CPSL/
+oldSubmissions/

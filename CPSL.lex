@@ -1,6 +1,9 @@
 %option noyywrap
 %{
 	#include <iostream>
+  #include <stdlib.h>
+  #include <vector>
+  #include "symboltable.hpp"
 	#include "CPSL.tab.h"
   #define YY_DECL extern "C" int yylex()
 	int lineNum=1;
@@ -37,7 +40,7 @@
 (var)|(VAR)	{if(debug){std::cout<<"VAR_SYM\n";}return(VAR_SYM);}
 (while)|(WHILE)	{if(debug){std::cout<<"WHILE_SYM\n";}return(WHILE_SYM);}
 (write)|(WRITE)	{if(debug){std::cout<<"WRITE_SYM\n";}return(WRITE_SYM);}
-[a-zA-Z][a-zA-Z0-9_]* {if(debug){std::cout<<"IDENTIFIER_SYM\n";}return(IDENTIFIER_SYM);}
+[a-zA-Z][a-zA-Z0-9_]* {if(debug){std::cout<<"IDENTIFIER_SYM\n";}yylval.strVal=strdup(yytext);return(IDENTIFIER_SYM);}
 "\+" {if(debug){std::cout<<"ADD_SYM\n";}return(ADD_SYM);}
 "-" {if(debug){std::cout<<"SUB_SYM\n";}return(SUB_SYM);}
 "\*" {if(debug){std::cout<<"MULT_SYM\n";}return(MULT_SYM);}
@@ -61,12 +64,12 @@
 "]" {if(debug){std::cout<<"RBRACK_SYM\n";}return(RBRACK_SYM);}
 ":=" {if(debug){std::cout<<"ASSIGN_SYM\n";}return(ASSIGN_SYM);}
 "%" {if(debug){std::cout<<"MOD_SYM\n";}return(MOD_SYM);}
-0[1-7][0-7]*	{if(debug){std::cout<<"OCTAL_SYM\n";}return(OCTAL_SYM);}
-[1-9][0-9]*	{if(debug){std::cout<<"DECIMAL_SYM\n";}return(DECIMAL_SYM);}
-0x[0-9a-fA-F]+	{if(debug){std::cout<<"HEX_SYM\n";}return(HEX_SYM);}
-0 {if(debug){std::cout<<"ZERO_SYM\n";}return(ZERO_SYM);}
-'\\?[ -~]'	{if(debug){std::cout<<"CHAR_SYM\n";}return(CHAR_SYM);}
-\"[ -!#-~]*\"	{if(debug){std::cout<<"STRING_SYM\n";}return(STRING_SYM);}
+0[1-7][0-7]*	{if(debug){std::cout<<"NUM_SYM\n";}yylval.intVal=strtol(yytext, &yytext, 8);return(NUM_SYM);}
+[1-9][0-9]*	{if(debug){std::cout<<"NUM_SYM\n";}yylval.intVal=atoi(yytext);return(NUM_SYM);}
+0x[0-9a-fA-F]+	{if(debug){std::cout<<"NUM_SYM\n";}yylval.intVal=strtol(yytext, &yytext, 16);return(NUM_SYM);}
+0 {if(debug){std::cout<<"NUM_SYM\n";}yylval.intVal=0;return(NUM_SYM);}
+'\\?[ -~]'	{if(debug){std::cout<<"CHAR_SYM\n";}yylval.strVal=strdup(yytext);return(CHAR_SYM);}
+\"[ -!#-~]*\"	{if(debug){std::cout<<"STRING_SYM\n";}yylval.strVal=strdup(yytext);return(STRING_SYM);}
 \$[^\r\n]*	{}
 [ \t]	{}
 [\n\r]	{++lineNum;}

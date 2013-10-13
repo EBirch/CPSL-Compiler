@@ -1,18 +1,25 @@
 #include "symboltable.hpp"
 
-Type::Type(std::string name, int size):Symbol(name)
+Type::Type(std::string name, int size, TypeType typeType):Symbol(name)
 ,size(size)
+,typeType(typeType)
 {};
 
 void Type::print(){
-  // std::cout<<"Type "<<name<<", size: "<<size<<std::endl;
-  std::cout<<"AUGH NO WHY\n";
+  std::cout<<"This shouldn't happen\n";
 };
 
-int Const::getIntVal()
-{
-  //TODO throw error if not right type
-  return numVal;
+int Const::getIntVal(){
+  if(type==intType){
+    return numVal;
+  }
+  if(type==identType){
+    auto ident=*(dynamic_cast<Const*>(SymbolTable::getInstance()->getSymbol(name).get()));
+    if(ident.type==intType){
+      return ident.numVal;
+    }
+  }
+  yyerror("Array bound not an int val\n");
 };
 
 Const::Const(int numVal, std::string name):Symbol(name)
@@ -28,6 +35,7 @@ Const::Const(char charVal, std::string name):Symbol(name)
 Const::Const(std::string strVal, std::string name):Symbol(name)
 ,strVal(strVal)
 ,type(stringType)
+,location(std::string("__stringConstLabel"+std::to_string(SymbolTable::getInstance()->labels++)))
 {};
 
 Const::Const(bool boolVal, std::string name):Symbol(name)
@@ -35,8 +43,8 @@ Const::Const(bool boolVal, std::string name):Symbol(name)
 ,type(booleanType)
 {};
 
-Const::Const(std::string name):Symbol(name)
-,type(identType)
+Const::Const(std::string name, ConstType type):Symbol(name)
+,type(type)
 {};
 
 void Const::print(){
@@ -44,54 +52,75 @@ void Const::print(){
   switch(type){
     case intType: std::cout<<": "<<numVal<<std::endl; break;
     case charType: std::cout<<": "<<charVal<<std::endl; break;
-    case stringType: std::cout<<": "<<strVal<<std::endl; break;
+    case stringType: std::cout<<": "<<strVal<<", location:"<<location<<std::endl; break;
     case booleanType: std::cout<<": "<<((boolVal)?"True":"False")<<std::endl; break;
     case identType: std::cout<<std::endl; break;
   };
 };
 
-Var::Var(Type type, std::string name):Symbol(name)
+Var::Var(Type type, int location, std::string name):Symbol(name)
 ,type(std::make_shared<Type>(type))
-{};
+,location(location){
+  SymbolTable::getInstance()->offset.back()+=type.size;
+};
 
 void Var::print(){
-  std::cout<<"Var "<<name<<" of type "<<type->name<<std::endl;
+  std::cout<<"Var "<<name<<" of type "<<type->name<<", location:"<<location<<std::endl;
 };
 
 Function::Function(std::string name, Type returnType, std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>> typeList, bool defined):Symbol(name)
 ,defined(defined)
 ,funcType(function)
 ,typeList(typeList)
-{};
+,location("__"+name)
+,returnType(std::make_shared<Type>(returnType)){
+  this->name=name;
+};
 
 Function::Function(std::string name, std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>> typeList, bool defined):Symbol(name)
 ,defined(defined)
 ,funcType(procedure)
 ,typeList(typeList)
-{};
-
-void Function::print(){//TODO
-  std::cout<<name<<std::endl;
+,location("__"+name){
+  this->name=name;
 };
 
-Array::Array(Type *type, Const lower, Const upper, std::string name):Type(name, type->size*(upper.getIntVal()-lower.getIntVal()))
+void Function::print(){
+  std::cout<<((funcType==Function::function)?("Function: "):("Procedure: "))<<name<<"(";
+  for(int i=0;i<typeList.size();++i){
+    for(int j=0;j<typeList[i].first.size();++j){
+      std::cout<<typeList[i].first[j];
+      if(j==typeList[i].first.size()-1){
+        continue;
+      }
+      std::cout<<", ";
+    }
+    std::cout<<": "<<typeList[i].second->name;
+    if(i==typeList.size()-1){
+        continue;
+      }
+    std::cout<<"; ";
+  }
+  std::cout<<")"<<((funcType==Function::function)?("->"+returnType->name):(""))<<", location:"<<location<<std::endl;
+};
+
+Array::Array(Type *type, Const lower, Const upper, std::string name):Type(name, type->size*(upper.getIntVal()-lower.getIntVal()), Type::array)
 ,lower(lower.getIntVal())
 ,upper(upper.getIntVal())
 ,type(std::make_shared<Type>(*type))
 {
+  if(this->upper<=this->lower){
+    yyerror("Invalid array bounds");
+  }
   this->name="Array["+std::to_string(this->lower)+":"+std::to_string(this->upper)+"] of "+type->name;
 };
 
 void Array::print(){
-  std::cout<<"Array "<<lower<<" to "<<upper<<" of "<<type->name<<" size:"<<size<<"\n";
+  std::cout<<"Type "<<name<<": Array "<<lower<<" to "<<upper<<" of "<<type->name<<", size:"<<size<<"\n";
 };
 
-Simple::Simple(simpleType simType, std::string name):Type(name, 4)//string size?
-,simType(simType){
-  // if(SymbolTable::getInstance()->lookUp(name)){
-  //   yyerror("Type already defined");
-  // }
-};
+Simple::Simple(simpleType simType, std::string name):Type(name, 4)
+,simType(simType){};
 
 void Simple::print(){
   std::cout<<"Type "<<name<<" of simple type ";
@@ -100,10 +129,20 @@ void Simple::print(){
     case boolean: std::cout<<"boolean"<<std::endl; break;
     case character: std::cout<<"char"<<std::endl; break;
     case string: std::cout<<"string"<<std::endl; break;
-    case trueVal: std::cout<<""<<std::endl; break;//TODO get rid of these
-    case falseVal: std::cout<<""<<std::endl; break;
-    case unknown: std::cout<<"unknown"<<std::endl; break;
   }
+};
+
+Record::Record(std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>> typeList, std::string name):Type(name, 0, Type::record){
+  int offset=0;
+  std::for_each(typeList.begin(), typeList.end(),
+    [&](std::pair<std::vector<std::string>, std::shared_ptr<Type>> val){
+      std::for_each(val.first.begin(), val.first.end(),
+        [&](std::string name){
+          layout.insert(std::make_pair(name, std::make_pair(val.second, offset)));
+          offset+=val.second->size;
+        });
+    });
+  this->size=offset;
 };
 
 std::shared_ptr<SymbolTable> SymbolTable::getInstance(){
@@ -114,129 +153,52 @@ std::shared_ptr<SymbolTable> SymbolTable::getInstance(){
   return instance;
 };
 
+void Record::print(){
+  std::cout<<"Type "<<name<<": Record {";
+  std::for_each(layout.begin(), layout.end(),
+    [&](std::pair<std::string, std::pair<std::shared_ptr<Type>, int>> val){
+      std::cout<<val.first<<":"<<val.second.first->name<<" at offset "<<val.second.second<<"; ";
+    });
+  std::cout<<"}"<<std::endl;
+};
+
 void SymbolTable::pushScope(Function funcName){
-  //check for forward declaration
   std::map<std::string, std::shared_ptr<Symbol>> temp;
-  // auto mid=tables.back().at(funcName);
-  // std::cout<<mid->name;
-  // auto comeon=dynamic_cast<Function*>(mid.get());
-  // auto whatev=std::static_pointer_cast<Function>(mid);
-  // std::shared_ptr<Function> tempFunc(std::dynamic_pointer_cast<Function>(tables.back().at(funcName)));
   std::shared_ptr<Function> tempFunc=std::make_shared<Function>(funcName);
-  // std::shared_ptr<Function> tempFunc(dynamic_cast<Function*>(tables.back().at(funcName).get()));
-  // tempFunc->print();
-  // std::for_each(tempFunc->typeList.begin(), tempFunc->typeList.end(),
-  //   [&](std::pair<std::vector<std::string>, std::shared_ptr<Type>> val){
-  //     std::for_each(val.first.begin(), val.first.end(),
-  //       [&](std::string ident){
-  //         temp.insert(std::pair<std::string, std::shared_ptr<Symbol>>(ident, val.second));
-  //       });
-  //   });
-  // std::cout<<tables.size()<<std::endl;
-  // std::cout<<tempFunc->typeList.size()<<std::endl;
+  tables.push_back(temp);
+  offset.push_back(0);
   for(int i=0;i<tempFunc->typeList.size();++i){
-    // std::cout<<tempFunc->typeList[i].first.size()<<std::endl;
     for(int j=0;j<tempFunc->typeList[i].first.size();++j){
-      // std::cout<<tempFunc->typeList[i].first[j]<<std::endl;
-      temp.insert(std::pair<std::string, std::shared_ptr<Symbol>>(tempFunc->typeList[i].first[j], tempFunc->typeList[i].second));
+      Var temp(*tempFunc->typeList[i].second, offset.back(), tempFunc->typeList[i].first[j]);
+      addSymbol(tempFunc->typeList[i].first[j], temp, true);
     }
   }
-  tables.push_back(temp);
 };
 
 void SymbolTable::popScope(){
-  // std::cout<<tables.back().size()<<std::endl;
-  // for(int i=0;i<tables.back().size();++i{
-  //   tables.back()[i].second->print();
-  // }
   std::for_each(tables.back().begin(), tables.back().end(), 
     [&](std::pair<std::string, std::shared_ptr<Symbol>> val)
     {
-      // std::cout<<val.first<<std::endl;
-      // std::cout<<val.first;
       val.second->print();
     });
   std::cout<<std::endl<<std::endl;
   tables.pop_back();
+  offset.pop_back();
 };
 
 void SymbolTable::addFunction(std::string name, Function func, bool forward){
   if(tables.back().find(name)!=tables.back().end()){
-    if(func.defined||forward){
-      yyerror("Function already defined\n");
+    if(auto tempFunc=dynamic_cast<Function*>(getSymbol(name).get())){
+      if(tempFunc->defined||forward){
+        yyerror("Function already defined\n");
+      }
+      tempFunc->defined=true;
+    }
+    else{
+      yyerror("Redeclaring symbol");
     }
   }
-  tables.back().insert(std::make_pair(name, std::make_shared<Symbol>(func)));
-};
-
-void SymbolTable::addSymbol(std::string name, Symbol sym, bool init){
-  if(tables.back().find(name)!=tables.back().end()){
-    if(init){
-      std::cout<<name<<std::endl;
-      yyerror("Symbol already defined\n");
-    }
-  }
-  tables.back().insert(std::make_pair(name, std::make_shared<Symbol>(sym)));
-};
-
-void SymbolTable::addSymbol(std::string name, Var var, bool init){
-  if(tables.back().find(name)!=tables.back().end()){
-    if(init){
-      std::cout<<name<<std::endl;
-      yyerror("Var already defined\n");
-    }
-  }
-  tables.back().insert(std::make_pair(name, std::make_shared<Var>(var)));
-};
-
-void SymbolTable::addSymbol(std::string name, Simple simple, bool init){
-  if(tables.back().find(name)!=tables.back().end()){
-    if(init){
-      std::cout<<name<<std::endl;
-      yyerror("Simple type already defined\n");
-    }
-  }
-  tables.back().insert(std::make_pair(name, std::make_shared<Simple>(simple)));
-};
-
-void SymbolTable::addSymbol(std::string name, Record record, bool init){
-  if(tables.back().find(name)!=tables.back().end()){
-    if(init){
-      std::cout<<name<<std::endl;
-      yyerror("Record already defined\n");
-    }
-  }
-  tables.back().insert(std::make_pair(name, std::make_shared<Record>(record)));
-};
-
-void SymbolTable::addSymbol(std::string name, Array array, bool init){
-  if(tables.back().find(name)!=tables.back().end()){
-    if(init){
-      std::cout<<name<<std::endl;
-      yyerror("Array already defined\n");
-    }
-  }
-  tables.back().insert(std::make_pair(name, std::make_shared<Array>(array)));
-};
-
-void SymbolTable::addSymbol(std::string name, Const constant, bool init){
-  if(tables.back().find(name)!=tables.back().end()){
-    if(init){
-      std::cout<<name<<std::endl;
-      yyerror("Const already defined\n");
-    }
-  }
-  tables.back().insert(std::make_pair(name, std::make_shared<Const>(constant)));
-};
-
-void SymbolTable::addSymbol(std::string name, Type type, bool init){
-  if(tables.back().find(name)!=tables.back().end()){
-    if(init){
-      std::cout<<name<<std::endl;
-      yyerror("Type already defined\n");
-    }
-  }
-  tables.back().insert(std::make_pair(name, std::make_shared<Type>(type)));
+  tables.back().insert(std::make_pair(name, std::make_shared<Function>(func)));
 };
 
 bool SymbolTable::lookup(std::string name){
@@ -255,6 +217,7 @@ std::shared_ptr<Symbol> SymbolTable::getSymbol(std::string name){
       return temp;
     }
   }
+  yyerror("Symbol not found");
 };
 
 bool Type::isType(){
@@ -279,7 +242,9 @@ void SymbolTable::checkType(std::string name){
 };
 
 SymbolTable::SymbolTable():tables()
+,labels(0)
 {
+  offset.resize(2);
   std::map<std::string, std::shared_ptr<Symbol>> temp, mainScope;
   temp.insert(std::make_pair("integer", std::make_shared<Simple>(Simple::integer, "integer")));
   temp.insert(std::make_pair("INTEGER", std::make_shared<Simple>(Simple::integer, "INTEGER")));
@@ -296,3 +261,155 @@ SymbolTable::SymbolTable():tables()
   tables.push_back(temp);
   tables.push_back(mainScope);
 };
+
+Const* negative(Const val){
+  if(!checkIdent(val, Const::intType)){
+    yyerror("Invalid operator on const expression");
+  }
+  return new Const(-val.numVal);
+}
+
+Const* notOp(Const val){
+  if(!checkIdent(val, Const::booleanType)){
+    yyerror("Invalid operator on const expression");
+  }
+  return new Const(!val.boolVal);
+}
+
+Const* mod(Const left, Const right){
+  if((left.type!=Const::intType)||(!sameType(left, right))){
+    yyerror("Invalid operator on const expression");
+  }
+  return new Const(left.numVal%right.numVal);  
+};
+
+Const* div(Const left, Const right){
+  if((left.type!=Const::intType)||(!sameType(left, right))){
+    yyerror("Invalid operator on const expression");
+  }
+  return new Const(left.numVal/right.numVal);  
+};
+
+Const* mult(Const left, Const right){
+  if((left.type!=Const::intType)||(!sameType(left, right))){
+    yyerror("Invalid operator on const expression");
+  }
+  return new Const(left.numVal*right.numVal);  
+};
+
+Const* sub(Const left, Const right){
+  if((left.type!=Const::intType)||(!sameType(left, right))){
+    yyerror("Invalid operator on const expression");
+  }
+  return new Const(left.numVal-right.numVal);  
+};
+
+Const* add(Const left, Const right){
+  if((left.type!=Const::intType)||(!sameType(left, right))){
+    yyerror("Invalid operator on const expression");
+  }
+  return new Const(left.numVal+right.numVal);  
+};
+
+Const* gt(Const left, Const right){
+  if(!sameType(left, right)){
+    yyerror("Operands not of same type");
+  }
+  switch(left.type){
+    case Const::intType:return new Const(left.numVal>right.numVal);
+    case Const::charType:return new Const(left.charVal>right.charVal);
+    case Const::stringType:return new Const(left.strVal>right.strVal);
+  }
+}
+
+Const* lt(Const left, Const right){
+  if(!sameType(left, right)){
+    yyerror("Operands not of same type");
+  }
+  switch(left.type){
+    case Const::intType:return new Const(left.numVal<right.numVal);
+    case Const::charType:return new Const(left.charVal<right.charVal);
+    case Const::stringType:return new Const(left.strVal<right.strVal);
+  }
+}
+
+Const* gte(Const left, Const right){
+  if(!sameType(left, right)){
+    yyerror("Operands not of same type");
+  }
+  switch(left.type){
+    case Const::intType:return new Const(left.numVal>=right.numVal);
+    case Const::charType:return new Const(left.charVal>=right.charVal);
+    case Const::stringType:return new Const(left.strVal>=right.strVal);
+  }
+}
+
+Const* lte(Const left, Const right){
+  if(!sameType(left, right)){
+    yyerror("Operands not of same type");
+  }
+  switch(left.type){
+    case Const::intType:return new Const(left.numVal<=right.numVal);
+    case Const::charType:return new Const(left.charVal<=right.charVal);
+    case Const::stringType:return new Const(left.strVal<=right.strVal);
+  }
+}
+
+Const* neq(Const left, Const right){
+  if(!sameType(left, right)){
+    yyerror("Operands not of same type");
+  }
+  switch(left.type){
+    case Const::intType:return new Const(left.numVal!=right.numVal);
+    case Const::charType:return new Const(left.charVal!=right.charVal);
+    case Const::stringType:return new Const(left.strVal!=right.strVal);
+  }
+}
+
+Const* eq(Const left, Const right){
+  if(!sameType(left, right)){
+    yyerror("Operands not of same type");
+  }
+  switch(left.type){
+    case Const::intType:return new Const(left.numVal==right.numVal);
+    case Const::charType:return new Const(left.charVal==right.charVal);
+    case Const::stringType:return new Const(left.strVal==right.strVal);
+  }
+}
+
+Const* andOp(Const left, Const right){
+  if(!sameType(left, right)){
+    yyerror("Operands not of same type");
+  }
+  switch(left.type){
+    case Const::booleanType:return new Const(left.boolVal&&right.boolVal);
+    default: yyerror("Invalid operator on const expression");
+  }
+}
+
+Const* orOp(Const left, Const right){
+  if(!sameType(left, right)){
+    yyerror("Operands not of same type");
+  }
+  switch(left.type){
+    case Const::booleanType:return new Const(left.boolVal||right.boolVal);
+    default: yyerror("Invalid operator on const expression");
+  }
+}
+
+bool sameType(Const &left, Const &right){
+  if(left.type==Const::identType){
+    left=*(dynamic_cast<Const*>(SymbolTable::getInstance()->getSymbol(left.name).get()));
+  }
+  if(right.type==Const::identType){
+    right=*(dynamic_cast<Const*>(SymbolTable::getInstance()->getSymbol(right.name).get()));
+  }
+  return left.type==right.type;
+}
+
+bool checkIdent(Const &val, Const::ConstType type){
+  if(val.type==Const::identType){
+    val=*(dynamic_cast<Const*>(SymbolTable::getInstance()->getSymbol(val.name).get()));
+  }
+  return val.type==type;
+}

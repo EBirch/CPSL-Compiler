@@ -21,9 +21,15 @@ class Symbol{
 
 class Type:public Symbol{
   public:
+    enum TypeType{
+      type,
+      record,
+      array
+    };
+    TypeType typeType;
     int size;
-    Type(std::string name, int size);
-    void print();
+    Type(std::string name, int size, TypeType typeType=type);
+    virtual void print();
     bool isType();
 };
 
@@ -40,20 +46,22 @@ class Const:public Symbol{
     int numVal;
     char charVal;
     std::string strVal;
+    std::string location;
     bool boolVal;
     int getIntVal();
     Const(int numVal, std::string name="");
     Const(char charVal, std::string name="");
     Const(std::string strVal, std::string name="");
     Const(bool boolVal, std::string name="");
-    Const(std::string name);
+    Const(std::string name, ConstType type);
     void print();
 };
 
 class Var:public Symbol{
   public:
     std::shared_ptr<Type> type;
-    Var(Type type, std::string name="");
+    int location;
+    Var(Type type, int location, std::string name="");
     void print();
 };
 
@@ -64,6 +72,7 @@ class Function:public Symbol{
       procedure
     };
     std::string name;
+    std::string location;
     std::shared_ptr<Type> returnType;
     std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>> typeList;
     bool defined;
@@ -85,15 +94,11 @@ class Array:public Type{
     };
 };
 
-//TODO: typelist use std::map<std::string(member name), std::pair<std::shared_ptr<Type>, int(offset)>>
 class Record:public Type{
   public:
     std::map<std::string, std::pair<std::shared_ptr<Type>, int>> layout;
-    Record(std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>> typeList, std::string name=""):Type(name, 0)
-    {};
-    void print(){
-      std::cout<<"TODO";
-    };
+    Record(std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>> typeList, std::string name="");
+    void print();
     bool isType(){
       return true;
     };
@@ -102,17 +107,14 @@ class Record:public Type{
 class Simple:public Type{
   public:
     enum simpleType{
-      unknown,
       integer,
       boolean,
       character,
       string,
-      trueVal,
-      falseVal
     };
     simpleType simType;
     std::shared_ptr<Type> type;
-    Simple(simpleType simType=unknown, std::string name="");
+    Simple(simpleType simType, std::string name="");
     void print();
     bool isType(){
       return true;
@@ -122,23 +124,47 @@ class Simple:public Type{
 class SymbolTable{
   public:
     std::vector<std::map<std::string, std::shared_ptr<Symbol>>> tables;
+    std::vector<int> offset;
+    int labels;
     static std::shared_ptr<SymbolTable> instance;
     static std::shared_ptr<SymbolTable> getInstance();
     void pushScope(Function funcName);
     void popScope();
     void addFunction(std::string name, Function func, bool forward=false);
-    void addSymbol(std::string name, Symbol sym, bool init=false);
-    void addSymbol(std::string name, Var var, bool init=false);
-    void addSymbol(std::string name, Simple simple, bool init=false);
-    void addSymbol(std::string name, Record record, bool init=false);
-    void addSymbol(std::string name, Array array, bool init=false);
-    void addSymbol(std::string name, Const constant, bool init=false);
-    void addSymbol(std::string name, Type type, bool init=false);
+    template <class T>
+    void addSymbol(std::string name, T sym, bool init=false){
+      if(tables.back().find(name)!=tables.back().end()){
+        if(init){
+          std::cout<<name<<std::endl;
+          yyerror(std::string(name+" already defined\n").data());
+        }
+      }
+      auto temp=std::make_pair(name, std::make_shared<T>(sym));
+      tables.back().insert(temp);
+    };
     bool lookup(std::string name);
     void checkType(std::string name);
     std::shared_ptr<Symbol> getSymbol(std::string name);
   private:
     SymbolTable();
 };
+
+Const* negative(Const val);
+Const* notOp(Const val);
+Const* mod(Const left, Const right);
+Const* div(Const left, Const right);
+Const* mult(Const left, Const right);
+Const* sub(Const left, Const right);
+Const* add(Const left, Const right);
+Const* gt(Const left, Const right);
+Const* lt(Const left, Const right);
+Const* gte(Const left, Const right);
+Const* lte(Const left, Const right);
+Const* neq(Const left, Const right);
+Const* eq(Const left, Const right);
+Const* andOp(Const left, Const right);
+Const* orOp(Const left, Const right);
+bool sameType(Const &left, Const &right);
+bool checkIdent(Const &val, Const::ConstType type);
 
 #endif

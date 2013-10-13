@@ -59,71 +59,170 @@ void yyerror(const char *str);
 
 %%
 
-program: ConstantDecl TypeDecl VarDecl ProFuncDecl Block DOT_SYM{SymbolTable::getInstance()->popScope();SymbolTable::getInstance()->popScope();}
+program: ConstantDecl TypeDecl VarDecl ProFuncDecl Block DOT_SYM{
+      SymbolTable::getInstance()->popScope();
+      SymbolTable::getInstance()->popScope();
+    }
   ;
 ConstantDecl:
-  | CONST_SYM MoreConst IDENTIFIER_SYM EQUALS_SYM ConstExpression SEMICOLON_SYM{$5->name=$3; SymbolTable::getInstance()->addSymbol($3, *$5, true);}
+  | CONST_SYM MoreConst IDENTIFIER_SYM EQUALS_SYM ConstExpression SEMICOLON_SYM{
+      $5->name=$3;
+      SymbolTable::getInstance()->addSymbol($3, *$5, true);
+    }
   ;
 MoreConst:
-  | MoreConst IDENTIFIER_SYM EQUALS_SYM ConstExpression SEMICOLON_SYM {$4->name=$2; SymbolTable::getInstance()->addSymbol($2, *$4, true);}
+  | MoreConst IDENTIFIER_SYM EQUALS_SYM ConstExpression SEMICOLON_SYM{
+      $4->name=$2;
+      SymbolTable::getInstance()->addSymbol($2, *$4, true);
+    }
   ;
 TypeDecl:
   | TYPE_SYM MoreType IDENTIFIER_SYM EQUALS_SYM Type SEMICOLON_SYM{
-    $5->name=$3; 
-    auto temp=$5;
-    SymbolTable::getInstance()->addSymbol($3, *temp, true); }
+      $5->name=$3; 
+      auto temp=$5;
+      switch($5->typeType){
+        case Type::type:SymbolTable::getInstance()->addSymbol($3, *$5, true);
+          break;
+        case Type::array:SymbolTable::getInstance()->addSymbol($3, *(dynamic_cast<Array*>($5)), true);
+          break;
+        case Type::record:SymbolTable::getInstance()->addSymbol($3, *(dynamic_cast<Record*>($5)), true);
+          break;
+      }
+    }
   ;
 MoreType:
-  | MoreType IDENTIFIER_SYM EQUALS_SYM Type SEMICOLON_SYM{$4->name=$2; 
-    SymbolTable::getInstance()->addSymbol($2, *$4, true); }
+  | MoreType IDENTIFIER_SYM EQUALS_SYM Type SEMICOLON_SYM{
+      $4->name=$2; 
+      auto temp=$5;
+      switch($4->typeType){
+        case Type::type:SymbolTable::getInstance()->addSymbol($2, *$4, true);
+          break;
+        case Type::array:SymbolTable::getInstance()->addSymbol($2, *(dynamic_cast<Array*>($4)), true);
+          break;
+        case Type::record:SymbolTable::getInstance()->addSymbol($2, *(dynamic_cast<Record*>($4)), true);
+          break;
+      }
+    }
   ;
-Type: SimpleType{$<typeVal>$=$1;}
-  | RecordType{$<recVal>$=$1;}
-  | ArrayType{
+Type: SimpleType{
+      $<typeVal>$=$1;
+    }
+  | RecordType{
     auto temp=$1;
-    $<arrVal>$=$1;}
+      $<recVal>$=$1;
+    }
+  | ArrayType{
+      auto temp=$1;
+      $<arrVal>$=$1;
+    }
   ;
-SimpleType: IDENTIFIER_SYM{SymbolTable::getInstance()->checkType($1); $$=dynamic_cast<Type*>(SymbolTable::getInstance()->getSymbol($1).get());}
+SimpleType: IDENTIFIER_SYM{
+      SymbolTable::getInstance()->checkType($1);
+      $$=dynamic_cast<Type*>(SymbolTable::getInstance()->getSymbol($1).get());
+    }
   ;
-RecordType: RECORD_SYM RecVars END_SYM{$$=new Record(*$2);}
+RecordType: RECORD_SYM RecVars END_SYM{
+      $$=new Record(*$2);
+    }
   ;
-RecVars: {$$=new std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>>();}
-  | RecVars IdentList COLON_SYM Type SEMICOLON_SYM{$1->push_back(std::make_pair(*$2, std::make_shared<Type>(*$4))); $$=$1;}
+RecVars: {
+      $$=new std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>>();
+    }
+  | RecVars IdentList COLON_SYM Type SEMICOLON_SYM{
+      $1->push_back(std::make_pair(*$2, std::make_shared<Type>(*$4)));
+      $$=$1;
+    }
   ;
-ArrayType: ARRAY_SYM LBRACK_SYM ConstExpression COLON_SYM ConstExpression RBRACK_SYM OF_SYM Type{$$=new Array($8, *$3, *$5);}
+ArrayType: ARRAY_SYM LBRACK_SYM ConstExpression COLON_SYM ConstExpression RBRACK_SYM OF_SYM Type{
+      $$=new Array($8, *$3, *$5);
+    }
   ;
-IdentList: MoreIdents IDENTIFIER_SYM{$1->push_back($2); $$=$1;}
+IdentList: MoreIdents IDENTIFIER_SYM{
+      $1->push_back($2);
+      $$=$1;
+    }
   ;
-MoreIdents: {$$=new std::vector<std::string>();}
-  | MoreIdents IDENTIFIER_SYM COMMA_SYM{$1->push_back($2); $$=$1;}
+MoreIdents: {
+      $$=new std::vector<std::string>();
+    }
+  | MoreIdents IDENTIFIER_SYM COMMA_SYM{
+      $1->push_back($2);
+      $$=$1;
+    }
   ;
 VarDecl:
-  | VAR_SYM MoreVars IdentList COLON_SYM Type SEMICOLON_SYM{std::for_each($3->begin(), $3->end(), [&](std::string val){Var var(*$5, val); SymbolTable::getInstance()->addSymbol(val, var, true);});}
+  | VAR_SYM MoreVars IdentList COLON_SYM Type SEMICOLON_SYM{
+      std::for_each($3->begin(), $3->end(), 
+        [&](std::string val){
+          Var var(*$5, SymbolTable::getInstance()->offset.back(), val);
+          SymbolTable::getInstance()->addSymbol(val, var, true);
+        });
+    }
   ;
 MoreVars:
-  | MoreVars IdentList COLON_SYM Type SEMICOLON_SYM{std::for_each($2->begin(), $2->end(), [&](std::string val){Var var(*$4, val); SymbolTable::getInstance()->addSymbol(val, var, true);});}
+  | MoreVars IdentList COLON_SYM Type SEMICOLON_SYM{
+      std::for_each($2->begin(), $2->end(), 
+        [&](std::string val){
+          Var var(*$4, SymbolTable::getInstance()->offset.back(), val);
+          SymbolTable::getInstance()->addSymbol(val, var, true);
+        });
+    }
   ;
 ProFuncDecl:
   | ProFuncDecl ProcedureDecl
   | ProFuncDecl FunctionDecl
   ;
-ProcedureDecl: PROCEDURE_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM SEMICOLON_SYM FORWARD_SYM SEMICOLON_SYM{Function func(std::string($2), *$4); SymbolTable::getInstance()->addFunction($2, func, true);}
-  | ProcedureStart Body SEMICOLON_SYM{SymbolTable::getInstance()->popScope();}
+ProcedureDecl: PROCEDURE_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM SEMICOLON_SYM FORWARD_SYM SEMICOLON_SYM{
+      Function func(std::string($2), *$4);
+      SymbolTable::getInstance()->addFunction($2, func, true);
+    }
+  | ProcedureStart Body SEMICOLON_SYM{
+      SymbolTable::getInstance()->popScope();
+    }
   ;
-ProcedureStart: PROCEDURE_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM SEMICOLON_SYM{Function func(std::string($2), *$4, true); SymbolTable::getInstance()->addFunction($2, func); SymbolTable::getInstance()->pushScope(func);}
+ProcedureStart: PROCEDURE_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM SEMICOLON_SYM{
+      Function func(std::string($2), *$4, true);
+      SymbolTable::getInstance()->addFunction($2, func);
+      SymbolTable::getInstance()->pushScope(func);
+    }
   ;
-FunctionDecl: FUNCTION_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM COLON_SYM Type SEMICOLON_SYM FORWARD_SYM SEMICOLON_SYM{Function func(std::string($2), *$7, *$4); SymbolTable::getInstance()->addFunction($2, func, true);}
-  | FunctionStart Body SEMICOLON_SYM{SymbolTable::getInstance()->popScope();}
+FunctionDecl: FUNCTION_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM COLON_SYM Type SEMICOLON_SYM FORWARD_SYM SEMICOLON_SYM{
+      Function func(std::string($2), *$7, *$4);
+      SymbolTable::getInstance()->addFunction($2, func, true);
+    }
+  | FunctionStart Body SEMICOLON_SYM{
+      SymbolTable::getInstance()->popScope();
+    }
   ;
-FunctionStart: FUNCTION_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM COLON_SYM Type SEMICOLON_SYM{Function func(std::string($2), *$4, true); SymbolTable::getInstance()->addFunction($2, func); SymbolTable::getInstance()->pushScope(func);}
+FunctionStart: FUNCTION_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM COLON_SYM Type SEMICOLON_SYM{
+      Function func(std::string($2), *$7, *$4, true);
+      SymbolTable::getInstance()->addFunction($2, func);
+      SymbolTable::getInstance()->pushScope(func);
+    }
   ;
-FormalParameters: {$$=new std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>>();}
-  | IdentList COLON_SYM Type MoreParams{$4->push_back(std::make_pair(*$1, std::make_shared<Type>(*$3))); $$=$4;}
-  | VAR_SYM IdentList COLON_SYM Type MoreParams{$5->push_back(std::make_pair(*$2, std::make_shared<Type>(*$4))); $$=$5;}
+FormalParameters: {
+      $$=new std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>>();
+    }
+  | MoreParams IdentList COLON_SYM Type{
+      $1->push_back(std::make_pair(*$2, std::make_shared<Type>(*$4)));
+      $$=$1;
+    }
+  | MoreParams VAR_SYM IdentList COLON_SYM Type{
+      $1->push_back(std::make_pair(*$3, std::make_shared<Type>(*$5)));
+      $$=$1;
+    }
   ;
-MoreParams: {$$=new std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>>();}
-  | SEMICOLON_SYM IdentList COLON_SYM Type MoreParams{$5->push_back(std::make_pair(*$2, std::make_shared<Type>(*$4))); $$=$5;}
-  | SEMICOLON_SYM VAR_SYM IdentList COLON_SYM Type MoreParams{$6->push_back(std::make_pair(*$3, std::make_shared<Type>(*$5))); $$=$6;}
+MoreParams: {
+      $$=new std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>>();
+    }
+  | MoreParams IdentList COLON_SYM Type SEMICOLON_SYM{
+      $1->push_back(std::make_pair(*$2, std::make_shared<Type>(*$4)));
+      $$=$1;
+    }
+  | MoreParams VAR_SYM IdentList COLON_SYM Type SEMICOLON_SYM{
+      $1->push_back(std::make_pair(*$3, std::make_shared<Type>(*$5)));
+      $$=$1;
+    }
   ;
 Body: ConstantDecl TypeDecl VarDecl Block
   ;
@@ -148,7 +247,7 @@ Statement: Assignment
   ;
 Assignment: LValue ASSIGN_SYM Expression
   ;
-LValue: IDENTIFIER_SYM Sublval //TODO: deal with lvals?
+LValue: IDENTIFIER_SYM Sublval
   ;
 Sublval:
   | DOT_SYM IDENTIFIER_SYM Sublval
@@ -182,28 +281,70 @@ SimpleExprPrim: LValue
   | CHAR_SYM
   | STRING_SYM
   ;
-ConstExpression: ConstPrim{$$=$1;}
-  | ConstExpression OR_SYM ConstExpression
-  | ConstExpression AND_SYM ConstExpression
-  | ConstExpression EQUALS_SYM ConstExpression
-  | ConstExpression NEQ_SYM ConstExpression
-  | ConstExpression LTE_SYM ConstExpression
-  | ConstExpression GTE_SYM ConstExpression
-  | ConstExpression LT_SYM ConstExpression
-  | ConstExpression GT_SYM ConstExpression
-  | ConstExpression ADD_SYM ConstExpression
-  | ConstExpression SUB_SYM ConstExpression
-  | ConstExpression MULT_SYM ConstExpression
-  | ConstExpression DIV_SYM ConstExpression
-  | ConstExpression MOD_SYM ConstExpression
-  | NOT_SYM ConstExpression//{$$=!$2;}
-  | SUB_SYM ConstExpression %prec UNARYMINUS_SYM//{$$=-$2;}
-  | LPAREN_SYM ConstExpression RPAREN_SYM{$$=$2;}
+ConstExpression: ConstPrim{
+      $$=$1;
+    }
+  | ConstExpression OR_SYM ConstExpression{
+      $$=orOp(*$1, *$3);
+    }
+  | ConstExpression AND_SYM ConstExpression{
+      $$=andOp(*$1, *$3);
+    }
+  | ConstExpression EQUALS_SYM ConstExpression{
+      $$=eq(*$1, *$3);
+    }
+  | ConstExpression NEQ_SYM ConstExpression{
+      $$=neq(*$1, *$3);
+    }
+  | ConstExpression LTE_SYM ConstExpression{
+      $$=lte(*$1, *$3);
+    }
+  | ConstExpression GTE_SYM ConstExpression{
+      $$=gte(*$1, *$3);
+    }
+  | ConstExpression LT_SYM ConstExpression{
+      $$=lt(*$1, *$3);
+    }
+  | ConstExpression GT_SYM ConstExpression{
+      $$=gt(*$1, *$3);
+    }
+  | ConstExpression ADD_SYM ConstExpression{
+      $$=add(*$1, *$3);
+    }
+  | ConstExpression SUB_SYM ConstExpression{
+      $$=sub(*$1, *$3);
+    }
+  | ConstExpression MULT_SYM ConstExpression{
+      $$=mult(*$1, *$3);
+    }
+  | ConstExpression DIV_SYM ConstExpression{
+      $$=div(*$1, *$3);
+    }
+  | ConstExpression MOD_SYM ConstExpression{
+      $$=mod(*$1, *$3);
+    }
+  | NOT_SYM ConstExpression{
+      $$=notOp(*$2);
+    }
+  | SUB_SYM ConstExpression %prec UNARYMINUS_SYM{
+      $$=negative(*$2);
+    }
+  | LPAREN_SYM ConstExpression RPAREN_SYM{
+      $$=$2;
+    }
   ;  
-ConstPrim: NUM_SYM{$$=new Const($1);}
-  | CHAR_SYM{$$=new Const(*$1);}
-  | STRING_SYM{$$=new Const($1);}
-  | IDENTIFIER_SYM{$$=new Const($1);}
+ConstPrim: NUM_SYM{
+      $$=new Const($1);
+    }
+  | CHAR_SYM{
+      $$=new Const(*$1);
+    }
+  | STRING_SYM{
+      $$=new Const(std::string($1));
+    }
+  | IDENTIFIER_SYM{
+      $$=new Const(std::string($1), Const::identType);
+    }
   ;
 Arguments: 
   | MoreArgs Expression
@@ -261,6 +402,6 @@ int main(int argc, char **argv){
 }
 
 void yyerror(const char *str){
-  std::cout<<"Bison error on line "<<lineNum<<": "<<str<<"\n";
+  std::cout<<"Parse error on line "<<lineNum<<": "<<str<<"\n";
   exit(-1);
 }

@@ -12,6 +12,7 @@ extern "C" FILE *yyin;
 extern int lineNum;
 extern char *yytext;
 std::shared_ptr<SymbolTable> SymbolTable::instance;
+bool verbose=false;
 void yyerror(const char *str);
 %}
 
@@ -396,6 +397,11 @@ int main(int argc, char **argv){
   if(!temp){
     std::cout<<"Error opening file\n";
     return -1;
+  }
+  if(argc>=3){
+    if(std::string(argv[2])=="-v"){
+      verbose=true;
+    }
   }
   yyin=temp;
   yyparse();

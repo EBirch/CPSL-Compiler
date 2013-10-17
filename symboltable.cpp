@@ -1,4 +1,5 @@
 #include "symboltable.hpp"
+extern bool verbose;
 
 Type::Type(std::string name, int size, TypeType typeType):Symbol(name)
 ,size(size)
@@ -176,12 +177,14 @@ void SymbolTable::pushScope(Function funcName){
 };
 
 void SymbolTable::popScope(){
-  std::for_each(tables.back().begin(), tables.back().end(), 
-    [&](std::pair<std::string, std::shared_ptr<Symbol>> val)
-    {
-      val.second->print();
-    });
-  std::cout<<std::endl<<std::endl;
+  if(verbose){
+    std::for_each(tables.back().begin(), tables.back().end(), 
+      [&](std::pair<std::string, std::shared_ptr<Symbol>> val)
+      {
+        val.second->print();
+      });
+    std::cout<<std::endl<<std::endl;
+  }
   tables.pop_back();
   offset.pop_back();
 };

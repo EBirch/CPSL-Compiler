@@ -1,4 +1,4 @@
-Usage:
+To compile and run, invoke make, then ./lex.out.
 
-make
-./lex.out testfile
+A filename must be provided for the first argument.
+To enable verbose symbol table output, the second argument must be -v.

@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <cstdio>
+#include <fstream>
 #include "symboltable.hpp"
 #define YYERROR_VERBOSE 1
 
@@ -12,6 +13,7 @@ extern "C" FILE *yyin;
 extern int lineNum;
 extern char *yytext;
 std::shared_ptr<SymbolTable> SymbolTable::instance;
+std::fstream emit;
 bool verbose=false;
 void yyerror(const char *str);
 %}
@@ -21,10 +23,12 @@ void yyerror(const char *str);
   char *strVal;
   std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>> *typeList;
   std::vector<std::string> *identList;
+  std::vector<Expression> *exprList;
   Array *arrVal;
   Record *recVal;
   Type *typeVal;
   Const *constVal;
+  Expression *expr;
   void *none;
 }
 
@@ -33,13 +37,15 @@ void yyerror(const char *str);
 
 %token <none> ARRAY_SYM BEGIN_SYM CHR_SYM CONST_SYM DO_SYM DOWNTO_SYM ELSE_SYM ELSEIF_SYM END_SYM FOR_SYM FORWARD_SYM FUNCTION_SYM IF_SYM OF_SYM ORD_SYM PRED_SYM PROCEDURE_SYM READ_SYM RECORD_SYM REPEAT_SYM RETURN_SYM STOP_SYM SUCC_SYM THEN_SYM TO_SYM TYPE_SYM UNTIL_SYM VAR_SYM WHILE_SYM WRITE_SYM DOT_SYM COMMA_SYM COLON_SYM SEMICOLON_SYM LPAREN_SYM RPAREN_SYM LBRACK_SYM RBRACK_SYM
 
-%type <intVal> Expression SimpleExprPrim
-%type <identList> IdentList MoreIdents
+%type <identList> IdentList MoreIdents 
 %type <typeList> FormalParameters MoreParams RecVars
 %type <constVal> ConstPrim ConstExpression
 %type <typeVal> Type SimpleType
 %type <recVal> RecordType 
 %type <arrVal> ArrayType
+%type <expr> Expression SimpleExprPrim LValue 
+%type <exprList> ExprList MoreLVals Sublval
+// %type <intVal> LValue
 // %type <none> program ConstantDecl MoreConst TypeDecl MoreType SimpleType RecordType ArrayType ProFuncDecl ProcedureDecl FunctionDecl Body Block StatementSequence MoreStatements Statement Assignment LValue Sublval Arguments MoreArgs IfStatement ElseIfs Else WhileStatement RepeatStatement ForStatement StopStatement ReturnStatement ReadStatement MoreLVals WriteStatement ProcedureCall NullStatement
 
 %left OR_SYM
@@ -63,6 +69,7 @@ void yyerror(const char *str);
 program: ConstantDecl TypeDecl VarDecl ProFuncDecl Block DOT_SYM{
       SymbolTable::getInstance()->popScope();
       SymbolTable::getInstance()->popScope();
+      SymbolTable::getInstance()->emitEnd();
     }
   ;
 ConstantDecl:
@@ -234,53 +241,140 @@ StatementSequence: MoreStatements Statement
 MoreStatements:
   | MoreStatements Statement SEMICOLON_SYM
   ;
-Statement: Assignment
-  | IfStatement
-  | WhileStatement
-  | RepeatStatement
-  | ForStatement
-  | StopStatement
-  | ReturnStatement
-  | ReadStatement
-  | WriteStatement
-  | ProcedureCall
-  | NullStatement
+Statement: Assignment{
+      SymbolTable::getInstance()->clearReg();
+    } 
+  | IfStatement{
+      SymbolTable::getInstance()->clearReg();
+    } 
+  | WhileStatement{
+      SymbolTable::getInstance()->clearReg();
+    } 
+  | RepeatStatement{
+      SymbolTable::getInstance()->clearReg();
+    } 
+  | ForStatement{
+      SymbolTable::getInstance()->clearReg();
+    } 
+  | StopStatement{
+      SymbolTable::getInstance()->clearReg();
+    } 
+  | ReturnStatement{
+      SymbolTable::getInstance()->clearReg();
+    } 
+  | ReadStatement{
+      SymbolTable::getInstance()->clearReg();
+    } 
+  | WriteStatement{
+      SymbolTable::getInstance()->clearReg();
+    } 
+  | ProcedureCall{
+      SymbolTable::getInstance()->clearReg();
+    } 
+  | NullStatement{
+      SymbolTable::getInstance()->clearReg();
+    } 
   ;
-Assignment: LValue ASSIGN_SYM Expression
+Assignment: LValue ASSIGN_SYM Expression{
+      assign($1, $3);
+    }
   ;
-LValue: IDENTIFIER_SYM Sublval
+LValue: IDENTIFIER_SYM Sublval{
+      auto temp=new Expression(std::string($1), Expression::stringType);
+      $2->push_back(*temp);
+      $$=getLval(*$2);
+    }
   ;
-Sublval:
-  | DOT_SYM IDENTIFIER_SYM Sublval
-  | LBRACK_SYM Expression RBRACK_SYM Sublval
+Sublval:{
+      $$=new std::vector<Expression>();
+    }
+  | DOT_SYM IDENTIFIER_SYM Sublval{
+      auto temp=new Expression(std::string($2), Expression::stringType);
+      $3->push_back(*temp);
+      $$=$3;
+    }
+  | LBRACK_SYM Expression RBRACK_SYM Sublval{
+      $4->push_back(*$2);
+      $$=$4;
+    }
   ;
-Expression: SimpleExprPrim
-  | Expression OR_SYM Expression
-  | Expression AND_SYM Expression
-  | Expression EQUALS_SYM Expression
-  | Expression NEQ_SYM Expression
-  | Expression LTE_SYM Expression
-  | Expression GTE_SYM Expression
-  | Expression LT_SYM Expression
-  | Expression GT_SYM Expression
-  | Expression ADD_SYM Expression
-  | Expression SUB_SYM Expression
-  | Expression MULT_SYM Expression
-  | Expression DIV_SYM Expression
-  | Expression MOD_SYM Expression
-  | NOT_SYM Expression
-  | SUB_SYM Expression %prec UNARYMINUS_SYM
-  | LPAREN_SYM Expression RPAREN_SYM
+Expression: SimpleExprPrim{
+      $$=$1;
+    }
+  | Expression OR_SYM Expression{
+      $$=eval($1, $3, "or");
+    }
+  | Expression AND_SYM Expression{
+      $$=eval($1, $3, "and");
+    }
+  | Expression EQUALS_SYM Expression{
+      $$=eval($1, $3, "seq");
+    }
+  | Expression NEQ_SYM Expression{
+      $$=eval($1, $3, "sne");
+    }
+  | Expression LTE_SYM Expression{
+      $$=eval($1, $3, "sle");
+    }
+  | Expression GTE_SYM Expression{
+      $$=eval($1, $3, "sge");
+    }
+  | Expression LT_SYM Expression{
+      $$=eval($1, $3, "slt");
+    }
+  | Expression GT_SYM Expression{
+      $$=eval($1, $3, "sgt");
+    }
+  | Expression ADD_SYM Expression{
+      $$=eval($1, $3, "add");
+    }
+  | Expression SUB_SYM Expression{
+      $$=eval($1, $3, "sub");
+    }
+  | Expression MULT_SYM Expression{
+      $$=evalSpec($1, $3, "mult");
+    }
+  | Expression DIV_SYM Expression{
+      $$=evalSpec($1, $3, "div");
+    }
+  | Expression MOD_SYM Expression{
+      $$=evalSpec($1, $3, "mod");
+    }
+  | NOT_SYM Expression{
+      $$=evalUnary($2, "not");
+    }
+  | SUB_SYM Expression %prec UNARYMINUS_SYM{
+      $$=evalUnary($2, "neg");
+    }
+  | LPAREN_SYM Expression RPAREN_SYM{
+      $$=$2;
+    }
   | IDENTIFIER_SYM LPAREN_SYM Arguments RPAREN_SYM
   | CHR_SYM LPAREN_SYM Expression RPAREN_SYM
   | ORD_SYM LPAREN_SYM Expression RPAREN_SYM
   | PRED_SYM LPAREN_SYM Expression RPAREN_SYM
   | SUCC_SYM LPAREN_SYM Expression RPAREN_SYM
   ;
-SimpleExprPrim: LValue
-  | NUM_SYM
-  | CHAR_SYM
-  | STRING_SYM
+SimpleExprPrim: LValue{
+      $$=$1;
+    }
+  | NUM_SYM{
+      $$=new Expression($1, Expression::intType, true);
+    }
+  | CHAR_SYM{
+      $$=new Expression($1[1], Expression::charType, true);
+    }
+  | STRING_SYM{
+      if(SymbolTable::getInstance()->lookup(std::string($1))){
+        auto temp=*(dynamic_cast<Const*>(SymbolTable::getInstance()->getSymbol($1).get()));
+        $$=new Expression(temp.location, Expression::stringType, true);
+      }
+      else{
+        auto temp=new Const(std::string($1), std::string($1));
+        SymbolTable::getInstance()->addSymbol(std::string($1), *temp, true);
+        $$=new Expression(temp->location, Expression::stringType, true);
+      }
+    }
   ;
 ConstExpression: ConstPrim{
       $$=$1;
@@ -338,10 +432,10 @@ ConstPrim: NUM_SYM{
       $$=new Const($1);
     }
   | CHAR_SYM{
-      $$=new Const(*$1);
+      $$=new Const($1[1]);
     }
   | STRING_SYM{
-      $$=new Const(std::string($1));
+      $$=new Const(std::string($1), std::string($1));
     }
   | IDENTIFIER_SYM{
       $$=new Const(std::string($1), Const::identType);
@@ -373,12 +467,31 @@ StopStatement: STOP_SYM
 ReturnStatement: RETURN_SYM Expression
   | RETURN_SYM
   ;
-ReadStatement: READ_SYM LPAREN_SYM MoreLVals LValue RPAREN_SYM
+ReadStatement: READ_SYM LPAREN_SYM MoreLVals LValue RPAREN_SYM{
+      $3->push_back(*$4);
+      read(*$3);
+    }
   ;
-MoreLVals: 
-  | MoreLVals LValue COMMA_SYM
+MoreLVals: {
+      $$=new std::vector<Expression>();
+    }
+  | MoreLVals LValue COMMA_SYM{
+      $1->push_back(*$2);
+      $$=$1;
+    }
   ;
-WriteStatement: WRITE_SYM LPAREN_SYM MoreArgs Expression RPAREN_SYM
+WriteStatement: WRITE_SYM LPAREN_SYM ExprList Expression RPAREN_SYM{
+      $3->push_back(*$4);
+      write(*$3);
+    }
+  ;
+ExprList: {
+      $$=new std::vector<Expression>();
+    }
+  | ExprList Expression COMMA_SYM{
+      $1->push_back(*$2);
+      $$=$1;
+    }
   ;
 ProcedureCall: IDENTIFIER_SYM LPAREN_SYM MoreArgs Expression RPAREN_SYM
   | IDENTIFIER_SYM LPAREN_SYM RPAREN_SYM
@@ -403,8 +516,14 @@ int main(int argc, char **argv){
       verbose=true;
     }
   }
+  std::string emitFile(argv[1]);
+  emitFile+=".cpsl";
+  emit.open(emitFile.data(), std::ios::out);
+  emit<<".text"<<std::endl<<".globl __main"<<std::endl<<"__main:"<<std::endl;
   yyin=temp;
   yyparse();
+  emit.close();
+  std::cout<<"Compiled to "<<emitFile<<std::endl;
 }
 
 void yyerror(const char *str){

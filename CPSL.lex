@@ -8,6 +8,23 @@
   #define YY_DECL extern "C" int yylex()
 	int lineNum=1;
   bool debug=false;
+  char *checkEscape(char *text){
+  	if(text[1]=='\\'){
+  		char *ret=new char[3];
+  		ret[0]='\'';
+  		switch(text[2]){
+  			case 'n': ret[1]='\n'; break;
+  			case 'r': ret[1]='\r'; break;
+  			case 'b': ret[1]='\b'; break; 
+  			case 't': ret[1]='\t'; break; 
+  			case 'f': ret[1]='\f'; break; 
+  			default: ret[1]=text[2]; break;
+  		}
+  		ret[2]='\'';
+  		return ret;
+  	}
+  	return text;
+  }
 %}
 %%
 (array)|(ARRAY) {if(debug){std::cout<<"ARRAY_SYM\n";}return(ARRAY_SYM);}
@@ -68,7 +85,7 @@
 [1-9][0-9]*	{if(debug){std::cout<<"NUM_SYM\n";}yylval.intVal=atoi(yytext);return(NUM_SYM);}
 0x[0-9a-fA-F]+	{if(debug){std::cout<<"NUM_SYM\n";}yylval.intVal=strtol(yytext, &yytext, 16);return(NUM_SYM);}
 0 {if(debug){std::cout<<"NUM_SYM\n";}yylval.intVal=0;return(NUM_SYM);}
-'\\?[ -~]'	{if(debug){std::cout<<"CHAR_SYM\n";}yylval.strVal=strdup(yytext);return(CHAR_SYM);}
+'\\?[ -~]'	{if(debug){std::cout<<"CHAR_SYM\n";}yylval.strVal=strdup(checkEscape(yytext));return(CHAR_SYM);}
 \"[ -!#-~]*\"	{if(debug){std::cout<<"STRING_SYM\n";}yylval.strVal=strdup(yytext);return(STRING_SYM);}
 \$[^\r\n]*	{}
 [ \t]	{}

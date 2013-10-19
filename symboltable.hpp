@@ -125,6 +125,8 @@ class SymbolTable{
   public:
     std::vector<std::map<std::string, std::shared_ptr<Symbol>>> tables;
     std::vector<int> offset;
+    std::vector<bool> registers;
+    std::vector<Const> stringConsts;
     int labels;
     static std::shared_ptr<SymbolTable> instance;
     static std::shared_ptr<SymbolTable> getInstance();
@@ -145,6 +147,9 @@ class SymbolTable{
     bool lookup(std::string name);
     void checkType(std::string name);
     std::shared_ptr<Symbol> getSymbol(std::string name);
+    int getReg();
+    void clearReg();
+    void emitEnd();
   private:
     SymbolTable();
 };
@@ -166,5 +171,45 @@ Const* andOp(Const left, Const right);
 Const* orOp(Const left, Const right);
 bool sameType(Const &left, Const &right);
 bool checkIdent(Const &val, Const::ConstType type);
+
+class Expression{
+  public:
+    void *val;
+    bool lit;
+    bool str;
+    enum Type{
+      intType,
+      charType,
+      boolType,
+      stringType,
+      reg
+    };
+    Type type;
+    template<class T>
+    Expression(T val, Type type, bool lit=false, bool str=false):type(type)
+    ,lit(lit)
+    ,str(str){
+      T *temp=new T(val);
+      this->val=((void*)temp);
+    };
+    template<class T>
+    T getVal(){
+      auto temp=(T*)val;
+      return *temp;
+    };
+};
+
+int getSize(std::string val);
+Expression *getLval(std::vector<Expression> exprList);
+void evalBoilerPlate(int &leftReg, int &rightReg, Expression *left, Expression* right);
+
+Expression *eval(Expression *left, Expression *right, std::string op);
+Expression *evalUnary(Expression *expr, std::string op);
+Expression *evalSpec(Expression *left, Expression *right, std::string op);
+Expression *foldExpr(Expression *left, Expression *right, std::string op);
+Expression *foldExprUnary(Expression *expr, std::string op);
+void assign(Expression *lval, Expression *rval);
+void write(std::vector<Expression> exprList);
+void read(std::vector<Expression> exprList);
 
 #endif

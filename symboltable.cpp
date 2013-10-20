@@ -441,47 +441,46 @@ Expression *getLval(std::vector<Expression> exprList){
 
   }
   int rootLoc=tempVar->location;
-  if(exprList.size()==1){
-    return new Expression(rootLoc, Expression::intType);
-  }
-  auto lastType=tempVar->type;
-  bool rootInt=true;
-  int locReg=SymbolTable::getInstance()->getReg();
-  int tempReg=SymbolTable::getInstance()->getReg(), tempRegMult=SymbolTable::getInstance()->getReg();
-  emit<<"move $"<<locReg<<", $zero";
-  int lastLower;
-  if(lastType->typeType==Type::array){
-    lastLower=(dynamic_cast<Array*>(lastType.get()))->lower;
-  }
-  std::for_each(exprList.begin()+1, exprList.end(),
-    [&](Expression expr){
-      if(expr.type==Expression::intType){
-        if(expr.lit){
-          rootLoc+=((expr.getVal<int>()-lastLower)*lastType->size);
+  auto lastType=dynamic_cast<Type*>(SymbolTable::getInstance()->getSymbol(tempVar->type->name).get());
+  if(exprList.size()>1){
+    bool rootInt=true;
+    int locReg=SymbolTable::getInstance()->getReg();
+    int tempReg=SymbolTable::getInstance()->getReg(), tempRegMult=SymbolTable::getInstance()->getReg();
+    emit<<"move $"<<locReg<<", $zero";
+    int lastLower;
+    if(lastType->typeType==Type::array){
+      lastLower=(dynamic_cast<Array*>(lastType))->lower;
+    }
+    std::for_each(exprList.begin()+1, exprList.end(),
+      [&](Expression expr){
+        if(expr.type==Expression::intType){
+          if(expr.lit){
+            rootLoc+=((expr.getVal<int>()-lastLower)*lastType->size);
+          }
+          else{
+            emit<<"lw $"<<tempReg<<", $"<<expr.getVal<int>()<<std::endl;
+            emit<<"addi $"<<tempReg<<", $"<<tempReg<<(-lastLower)<<std::endl;
+            emit<<"li $"<<tempRegMult<<", "<<lastType->size<<std::endl;
+            emit<<"mult $"<<tempReg<<", $"<<tempRegMult<<std::endl;
+            emit<<"mflo $"<<tempReg<<std::endl;
+            emit<<"add $"<<locReg<<", $"<<locReg<<", $"<<tempReg<<std::endl;
+          }
+        }
+        else if(expr.type==Expression::stringType){
+          auto tempRec=(dynamic_cast<Record*>(lastType));
+          if(tempRec->layout.find(expr.getVal<std::string>())==tempRec->layout.end()){
+            yyerror("Invalid lvalue expression");
+          }
+          auto mem=tempRec->layout.at(expr.getVal<std::string>());
+          rootLoc+=mem.second;
+          lastType=dynamic_cast<Type*>(SymbolTable::getInstance()->getSymbol(mem.first->name).get());
         }
         else{
-          emit<<"lw $"<<tempReg<<", $"<<expr.getVal<int>()<<std::endl;
-          emit<<"addi $"<<tempReg<<", $"<<tempReg<<(-lastLower)<<std::endl;
-          emit<<"li $"<<tempRegMult<<", "<<lastType->size<<std::endl;
-          emit<<"mult $"<<tempReg<<", $"<<tempRegMult<<std::endl;
-          emit<<"mflo $"<<tempReg<<std::endl;
-          emit<<"add $"<<locReg<<", $"<<locReg<<", $"<<tempReg<<std::endl;
-        }
-      }
-      else if(expr.type==Expression::stringType){
-        auto tempRec=(dynamic_cast<Record*>(lastType.get()));
-        if(tempRec->layout.find(expr.getVal<std::string>())==tempRec->layout.end()){
           yyerror("Invalid lvalue expression");
         }
-        auto mem=tempRec->layout.at(expr.getVal<std::string>());
-        rootLoc+=mem.second;
-        lastType=mem.first;
-      }
-      else{
-        yyerror("Invalid lvalue expression");
-      }
-    });
-  auto simpTemp=(dynamic_cast<Simple*>(lastType.get()));
+      });
+    }
+  auto simpTemp=(dynamic_cast<Simple*>(lastType));
   return new Expression(rootLoc, Expression::intType, false, (simpTemp->simType==Simple::character||simpTemp->simType==Simple::string));
 }
 
@@ -489,7 +488,7 @@ int SymbolTable::getReg(){
   for(int i=0;i<registers.size();++i){
     if(registers[i]){
       registers[i]=false;
-      return i+7;
+      return i+8;
     }
   }
   yyerror("Out of registers\n");
@@ -649,7 +648,7 @@ void read(std::vector<Expression> exprList){
   std::for_each(exprList.begin(), exprList.end(), 
     [&](Expression expr){
       if(expr.str){
-        emit<<"li $v0, 8"<<std::endl<<"syscall"<<std::endl<<"sw $v0, "<<expr.getVal<int>()<<"($sp)"<<std::endl;
+        emit<<"li $v0, 12"<<std::endl<<"syscall"<<std::endl<<"sw $v0, "<<expr.getVal<int>()<<"($sp)"<<std::endl;
       }
       else{
         emit<<"li $v0, 5"<<std::endl<<"syscall"<<std::endl<<"sw $v0, "<<expr.getVal<int>()<<"($sp)"<<std::endl;

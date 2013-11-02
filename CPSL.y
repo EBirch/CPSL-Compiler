@@ -43,9 +43,8 @@ void yyerror(const char *str);
 %type <typeVal> Type SimpleType
 %type <recVal> RecordType 
 %type <arrVal> ArrayType
-%type <expr> Expression SimpleExprPrim LValue 
+%type <expr> Expression SimpleExprPrim LValue ForBegin ForMidTo ForMidDownto
 %type <exprList> ExprList MoreLVals Sublval
-// %type <intVal> LValue
 // %type <none> program ConstantDecl MoreConst TypeDecl MoreType SimpleType RecordType ArrayType ProFuncDecl ProcedureDecl FunctionDecl Body Block StatementSequence MoreStatements Statement Assignment LValue Sublval Arguments MoreArgs IfStatement ElseIfs Else WhileStatement RepeatStatement ForStatement StopStatement ReturnStatement ReadStatement MoreLVals WriteStatement ProcedureCall NullStatement
 
 %left OR_SYM
@@ -87,7 +86,6 @@ MoreConst:
 TypeDecl:
   | TYPE_SYM MoreType IDENTIFIER_SYM EQUALS_SYM Type SEMICOLON_SYM{
       $5->name=$3; 
-      auto temp=$5;
       switch($5->typeType){
         case Type::type:SymbolTable::getInstance()->addSymbol($3, *$5, true);
           break;
@@ -101,7 +99,6 @@ TypeDecl:
 MoreType:
   | MoreType IDENTIFIER_SYM EQUALS_SYM Type SEMICOLON_SYM{
       $4->name=$2; 
-      auto temp=$5;
       switch($4->typeType){
         case Type::type:SymbolTable::getInstance()->addSymbol($2, *$4, true);
           break;
@@ -116,11 +113,15 @@ Type: SimpleType{
       $<typeVal>$=$1;
     }
   | RecordType{
-    auto temp=$1;
+      if(!SymbolTable::getInstance()->lookup($1->name)){
+          SymbolTable::getInstance()->addSymbol($1->name, *(dynamic_cast<Record*>($1)), true);
+        }
       $<recVal>$=$1;
     }
   | ArrayType{
-      auto temp=$1;
+      if(!SymbolTable::getInstance()->lookup($1->name)){
+          SymbolTable::getInstance()->addSymbol($1->name, *(dynamic_cast<Array*>($1)), true);
+        }
       $<arrVal>$=$1;
     }
   ;
@@ -162,6 +163,16 @@ VarDecl:
   | VAR_SYM MoreVars IdentList COLON_SYM Type SEMICOLON_SYM{
       std::for_each($3->begin(), $3->end(), 
         [&](std::string val){
+          if(!SymbolTable::getInstance()->lookup($5->name)){
+            switch($5->typeType){
+              case Type::type:SymbolTable::getInstance()->addSymbol($5->name, *$5, true);
+                break;
+              case Type::array:SymbolTable::getInstance()->addSymbol($5->name, *(dynamic_cast<Array*>($5)), true);
+                break;
+              case Type::record:SymbolTable::getInstance()->addSymbol($5->name, *(dynamic_cast<Record*>($5)), true);
+                break;
+            }
+          }
           Var var(*$5, SymbolTable::getInstance()->offset.back(), val);
           SymbolTable::getInstance()->addSymbol(val, var, true);
         });
@@ -282,6 +293,7 @@ Assignment: LValue ASSIGN_SYM Expression{
 LValue: IDENTIFIER_SYM Sublval{
       auto temp=new Expression(std::string($1), Expression::stringType);
       $2->push_back(*temp);
+      std::reverse($2->begin(), $2->end());
       $$=getLval(*$2);
     }
   ;
@@ -447,22 +459,101 @@ Arguments:
 MoreArgs:
   | MoreArgs Expression COMMA_SYM
   ;
-IfStatement: IF_SYM Expression THEN_SYM StatementSequence ElseIfs Else END_SYM
+IfStatement: IfMid ElseIfs Else END_SYM{
+      endIf();
+    }
+  ;
+IfMid: IfStart THEN_SYM StatementSequence{
+    ifBranchEnd();
+  }
+;
+IfStart: IF_SYM Expression{
+      ifBegin();
+      ifBranch($2);
+    }
   ;
 ElseIfs: 
-  | ELSEIF_SYM Expression THEN_SYM StatementSequence ElseIfs
+  | ElseIfs ElseIfMid THEN_SYM StatementSequence{
+      ifBranchEnd();
+    }
+  ;
+ElseIfMid: ElseIfStart Expression{
+      ifBranch($2);
+    }
+  ;
+ElseIfStart: ELSEIF_SYM{
+      labelIfBranch();
+    }
   ;
 Else:
-  | ELSE_SYM StatementSequence
+  | ElseStart StatementSequence{
+      ifBranchEnd();
+    }
   ;
-WhileStatement: WHILE_SYM Expression DO_SYM StatementSequence END_SYM
+ElseStart: ELSE_SYM{
+      labelIfBranch();
+    }
   ;
-RepeatStatement: REPEAT_SYM StatementSequence UNTIL_SYM Expression
+WhileStatement: WhileMid DO_SYM StatementSequence END_SYM{
+      controlEnd();
+    }
   ;
-ForStatement: FOR_SYM IDENTIFIER_SYM ASSIGN_SYM Expression TO_SYM Expression DO_SYM StatementSequence END_SYM
-  | FOR_SYM IDENTIFIER_SYM ASSIGN_SYM Expression DOWNTO_SYM Expression DO_SYM StatementSequence END_SYM
+WhileMid: WhileBegin Expression{
+      controlCheck($2, true);
+    }
   ;
-StopStatement: STOP_SYM
+WhileBegin: WHILE_SYM{
+      controlBegin();
+    }
+  ;
+RepeatStatement: RepeatMid UNTIL_SYM Expression{
+      repeatCheck($3);
+    }
+  ;
+
+RepeatMid: RepeatBegin StatementSequence
+  ;
+
+RepeatBegin: REPEAT_SYM{
+      controlBegin();
+    }
+  ;
+ForStatement: ForToStatement
+  | ForDowntoStatement
+  ;
+ForToStatement: ForMidTo DO_SYM StatementSequence END_SYM{
+      assign($1, eval($1, new Expression(1, Expression::intType, true), "add"));
+      controlEnd();
+    }
+  ;
+ForDowntoStatement: ForMidDownto DO_SYM StatementSequence END_SYM{
+      assign($1, eval($1, new Expression(1, Expression::intType, true), "sub"));
+      controlEnd();
+    }
+  ;
+ForMidTo: ForBegin TO_SYM Expression{
+      controlCheck(eval($1, $3, "sgt"));
+      $$=$1;
+    }
+  ;
+ForMidDownto: ForBegin DOWNTO_SYM Expression{
+      controlCheck(eval($1, $3, "slt"));
+      $$=$1;
+    }
+  ;
+ForBegin: FOR_SYM IDENTIFIER_SYM ASSIGN_SYM Expression{
+      auto temp=new Expression(std::string($2), Expression::stringType);
+      auto tempVec=new std::vector<Expression>();
+      tempVec->push_back(*temp);
+      auto expr=getLval(*tempVec);
+      assign(expr, $4);
+      controlBegin();
+      $$=expr;
+    }
+  ;
+StopStatement: STOP_SYM{
+      emit<<"li $v0, 10"<<std::endl<<"syscall"<<std::endl;
+    }
   ;
 ReturnStatement: RETURN_SYM Expression
   | RETURN_SYM

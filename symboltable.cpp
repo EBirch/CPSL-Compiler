@@ -249,6 +249,10 @@ void SymbolTable::checkType(std::string name){
 
 SymbolTable::SymbolTable():tables()
 ,labels(0)
+,controlLabels(0)
+,ifLabels(0)
+,controlStack()
+,ifStack()
 ,stringConsts(){
   offset.resize(2);
   registers.resize(18);
@@ -441,24 +445,31 @@ Expression *getLval(std::vector<Expression> exprList){
 
   }
   int rootLoc=tempVar->location;
+  int lastLower;
+  // auto lastType=dynamic_cast<Type*>(tempVar->type.get());
   auto lastType=dynamic_cast<Type*>(SymbolTable::getInstance()->getSymbol(tempVar->type->name).get());
+  // if(lastType->typeType==Type::array){
+  //   lastLower=(dynamic_cast<Array*>(lastType))->lower;
+  //   lastType=dynamic_cast<Type*>(dynamic_cast<Array*>(lastType)->type.get());
+  // }
   if(exprList.size()>1){
     bool rootInt=true;
     int locReg=SymbolTable::getInstance()->getReg();
     int tempReg=SymbolTable::getInstance()->getReg(), tempRegMult=SymbolTable::getInstance()->getReg();
-    emit<<"move $"<<locReg<<", $zero";
-    int lastLower;
+    emit<<"move $"<<locReg<<", $zero"<<std::endl;
+    // std::for_each(exprList.begin()+1, exprList.end(),
+      // [&](Expression expr){
+    for(int i=1;i<exprList.size();++i){
     if(lastType->typeType==Type::array){
-      lastLower=(dynamic_cast<Array*>(lastType))->lower;
+      lastLower=(dynamic_cast<Array*>(SymbolTable::getInstance()->getSymbol(lastType->name).get()))->lower;
+      lastType=dynamic_cast<Type*>(dynamic_cast<Array*>(SymbolTable::getInstance()->getSymbol(lastType->name).get())->type.get());
     }
-    std::for_each(exprList.begin()+1, exprList.end(),
-      [&](Expression expr){
-        if(expr.type==Expression::intType){
-          if(expr.lit){
-            rootLoc+=((expr.getVal<int>()-lastLower)*lastType->size);
+        if(exprList[i].type==Expression::intType){
+          if(exprList[i].lit){
+            rootLoc+=((exprList[i].getVal<int>()-lastLower)*lastType->size);
           }
           else{
-            emit<<"lw $"<<tempReg<<", $"<<expr.getVal<int>()<<std::endl;
+            emit<<"lw $"<<tempReg<<", $"<<exprList[i].getVal<int>()<<std::endl;
             emit<<"addi $"<<tempReg<<", $"<<tempReg<<(-lastLower)<<std::endl;
             emit<<"li $"<<tempRegMult<<", "<<lastType->size<<std::endl;
             emit<<"mult $"<<tempReg<<", $"<<tempRegMult<<std::endl;
@@ -466,22 +477,27 @@ Expression *getLval(std::vector<Expression> exprList){
             emit<<"add $"<<locReg<<", $"<<locReg<<", $"<<tempReg<<std::endl;
           }
         }
-        else if(expr.type==Expression::stringType){
+        else if(exprList[i].type==Expression::stringType){
           auto tempRec=(dynamic_cast<Record*>(lastType));
-          if(tempRec->layout.find(expr.getVal<std::string>())==tempRec->layout.end()){
+          if(tempRec->layout.find(exprList[i].getVal<std::string>())==tempRec->layout.end()){
             yyerror("Invalid lvalue expression");
           }
-          auto mem=tempRec->layout.at(expr.getVal<std::string>());
+          auto mem=tempRec->layout.at(exprList[i].getVal<std::string>());
           rootLoc+=mem.second;
           lastType=dynamic_cast<Type*>(SymbolTable::getInstance()->getSymbol(mem.first->name).get());
         }
         else{
           yyerror("Invalid lvalue expression");
         }
-      });
+      // });
+      }
     }
-  auto simpTemp=(dynamic_cast<Simple*>(lastType));
-  return new Expression(rootLoc, Expression::intType, false, (simpTemp->simType==Simple::character||simpTemp->simType==Simple::string));
+  auto simpTemp=(dynamic_cast<Simple*>(SymbolTable::getInstance()->getSymbol(lastType->name).get()));
+  if(!simpTemp){
+    auto what=dynamic_cast<Array*>(SymbolTable::getInstance()->getSymbol(lastType->name).get());
+    simpTemp=(dynamic_cast<Simple*>(SymbolTable::getInstance()->getSymbol(what->type->name).get()));
+  }
+  return new Expression(rootLoc, Expression::intType, false, (simpTemp->simType==Simple::character||simpTemp->simType==Simple::string), true);
 }
 
 int SymbolTable::getReg(){
@@ -601,7 +617,14 @@ void assign(Expression *lval, Expression *rval){
   if(rval->lit){
     emit<<"li $"<<src<<", "<<rval->getVal<int>()<<std::endl;
   }
-  emit<<"sw $"<<src<<", "<<lval->getVal<int>()<<"($sp)"<<std::endl;
+  if(rval->ident){
+    int reg=SymbolTable::getInstance()->getReg();
+    emit<<"lw $"<<reg<<", "<<src<<"($sp)"<<std::endl;
+    emit<<"sw $"<<reg<<", "<<lval->getVal<int>()<<"($sp)"<<std::endl;
+  }
+  else{
+    emit<<"sw $"<<src<<", "<<lval->getVal<int>()<<"($sp)"<<std::endl;
+  }
 }
 
 void write(std::vector<Expression> exprList){
@@ -610,11 +633,16 @@ void write(std::vector<Expression> exprList){
       if(expr.type==Expression::intType){
         if(expr.lit){
           emit<<"li $a0, "<<expr.getVal<int>()<<std::endl;
+          emit<<"li $v0, 1"<<std::endl;
+        }
+        else if(expr.str){
+          emit<<"lw $a0, "<<expr.getVal<int>()<<"($sp)"<<std::endl;
+          emit<<"li $v0, 11"<<std::endl;
         }
         else{
           emit<<"lw $a0, "<<expr.getVal<int>()<<"($sp)"<<std::endl;
+          emit<<"li $v0, 1"<<std::endl;
         }
-        emit<<"li $v0, 1"<<std::endl;
       }
       if(expr.type==Expression::stringType){
         emit<<"la $a0, "<<expr.getVal<std::string>()<<std::endl;
@@ -628,9 +656,9 @@ void write(std::vector<Expression> exprList){
         emit<<"move $a0, $"<<expr.getVal<int>()<<std::endl;
         emit<<"li $v0, 1"<<std::endl;
       }
-      // emit<<"syscall"<<std::endl<<"la $a0, __newline"<<std::endl<<"li $v0, 4"<<std::endl<<"syscall"<<std::endl;
       emit<<"syscall"<<std::endl;
     });
+  emit<<"la $a0, __newline"<<std::endl<<"li $v0, 4"<<std::endl<<"syscall"<<std::endl;
 }
 
 void SymbolTable::emitEnd(){
@@ -654,4 +682,74 @@ void read(std::vector<Expression> exprList){
         emit<<"li $v0, 5"<<std::endl<<"syscall"<<std::endl<<"sw $v0, "<<expr.getVal<int>()<<"($sp)"<<std::endl;
       }
     });
+}
+
+void ifBegin(){
+  SymbolTable::getInstance()->ifStack.push_back(0);
+  SymbolTable::getInstance()->controlStack.push_back(SymbolTable::getInstance()->controlLabels++);
+}
+
+void controlBegin(){
+  int labelCount=SymbolTable::getInstance()->controlLabels++;
+  SymbolTable::getInstance()->controlStack.push_back(labelCount);
+  emit<<"__controlStmt"<<labelCount<<": ";
+}
+
+void controlCheck(Expression *cond, bool val){
+  int labelCount=SymbolTable::getInstance()->controlStack.back();
+  int reg=((cond->type==Expression::reg)?(cond->getVal<int>()):(SymbolTable::getInstance()->getReg()));
+  if(cond->type!=Expression::reg){
+    emit<<((cond->lit)?("li $"+std::to_string(reg)+", "+std::to_string(cond->getVal<int>())):("lw $")+std::to_string(reg)+", "+std::to_string(cond->getVal<int>())+"($sp)")<<std::endl;
+  }
+  if(!val){
+    emit<<"bne $"<<reg<<", $zero, __controlStmtAfter"<<labelCount<<std::endl;
+  }
+  else{
+    emit<<"beq $"<<reg<<", $zero, __controlStmtAfter"<<labelCount<<std::endl;
+  }
+}
+
+void repeatCheck(Expression *cond){
+  int labelCount=SymbolTable::getInstance()->controlStack.back();
+  int reg=((cond->type==Expression::reg)?(cond->getVal<int>()):(SymbolTable::getInstance()->getReg()));
+  if(cond->type!=Expression::reg){
+    emit<<((cond->lit)?("li $"+std::to_string(reg)+", "+std::to_string(cond->getVal<int>())):("lw $")+std::to_string(reg)+", "+std::to_string(cond->getVal<int>())+"($sp)")<<std::endl;
+  }
+  emit<<"beq $"<<reg<<", $zero, __controlStmt"<<labelCount<<std::endl;
+  SymbolTable::getInstance()->controlStack.pop_back();
+}
+
+void controlEnd(){
+  emit<<"j __controlStmt"<<SymbolTable::getInstance()->controlStack.back()<<std::endl;
+  emit<<"__controlStmtAfter"<<SymbolTable::getInstance()->controlStack.back()<<": "<<std::endl;
+  SymbolTable::getInstance()->controlStack.pop_back();
+}
+
+void ifBranch(Expression *cond){
+  int ifCount=SymbolTable::getInstance()->ifStack.back();
+  int controlCount=SymbolTable::getInstance()->controlStack.back();
+  int reg=((cond->type==Expression::reg)?(cond->getVal<int>()):(SymbolTable::getInstance()->getReg()));
+  if(cond->type!=Expression::reg){
+    emit<<((cond->lit)?("li $"+std::to_string(reg)+", "+std::to_string(cond->getVal<int>())):("lw $")+std::to_string(reg)+", "+std::to_string(cond->getVal<int>())+"($sp)")<<std::endl;
+  }
+  emit<<"beq $"<<reg<<", $zero, __control"<<controlCount<<"IfStmt"<<ifCount<<std::endl;
+}
+
+void ifBranchEnd(){
+  emit<<"j __controlStmtAfter"<<SymbolTable::getInstance()->controlStack.back()<<std::endl;
+}
+
+void endIf(){
+  int ifCount=SymbolTable::getInstance()->ifStack.back();
+  int controlCount=SymbolTable::getInstance()->controlStack.back();
+  emit<<"__control"<<controlCount<<"IfStmt"<<ifCount<<": "<<std::endl;
+  emit<<"__controlStmtAfter"<<controlCount<<": "<<std::endl;
+  SymbolTable::getInstance()->controlStack.pop_back();
+  SymbolTable::getInstance()->ifStack.pop_back();
+}
+
+void labelIfBranch(){
+  int ifCount=SymbolTable::getInstance()->ifStack.back()++;
+  int controlCount=SymbolTable::getInstance()->controlStack.back();
+  emit<<"__control"<<controlCount<<"IfStmt"<<ifCount<<": "<<std::endl;
 }

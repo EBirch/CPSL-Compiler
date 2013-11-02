@@ -127,7 +127,11 @@ class SymbolTable{
     std::vector<int> offset;
     std::vector<bool> registers;
     std::vector<Const> stringConsts;
+    std::vector<int> controlStack;
+    std::vector<int> ifStack;
     int labels;
+    int controlLabels;
+    int ifLabels;
     static std::shared_ptr<SymbolTable> instance;
     static std::shared_ptr<SymbolTable> getInstance();
     void pushScope(Function funcName);
@@ -177,6 +181,7 @@ class Expression{
     void *val;
     bool lit;
     bool str;
+    bool ident;
     enum Type{
       intType,
       charType,
@@ -186,9 +191,10 @@ class Expression{
     };
     Type type;
     template<class T>
-    Expression(T val, Type type, bool lit=false, bool str=false):type(type)
+    Expression(T val, Type type, bool lit=false, bool str=false, bool ident=false):type(type)
     ,lit(lit)
-    ,str(str){
+    ,str(str)
+    ,ident(ident){
       T *temp=new T(val);
       this->val=((void*)temp);
     };
@@ -211,5 +217,14 @@ Expression *foldExprUnary(Expression *expr, std::string op);
 void assign(Expression *lval, Expression *rval);
 void write(std::vector<Expression> exprList);
 void read(std::vector<Expression> exprList);
+void controlBegin();
+void controlCheck(Expression *cond, bool val=false);
+void repeatCheck(Expression *cond);
+void controlEnd();
+void ifBegin();
+void ifBranch(Expression *cond);
+void ifBranchEnd();
+void endIf();
+void labelIfBranch();
 
 #endif

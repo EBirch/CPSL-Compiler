@@ -73,6 +73,7 @@ class Function:public Symbol{
     };
     std::string name;
     std::string location;
+    int offset;
     std::shared_ptr<Type> returnType;
     std::vector<std::pair<std::vector<std::string>, std::shared_ptr<Type>>> typeList;
     bool defined;
@@ -129,6 +130,7 @@ class SymbolTable{
     std::vector<Const> stringConsts;
     std::vector<int> controlStack;
     std::vector<int> ifStack;
+    std::vector<std::pair<int, int>> spillStack;
     int labels;
     int controlLabels;
     int ifLabels;
@@ -153,6 +155,7 @@ class SymbolTable{
     std::shared_ptr<Symbol> getSymbol(std::string name);
     int getReg();
     void clearReg();
+    // void lockReg(int);
     void emitEnd();
   private:
     SymbolTable();
@@ -226,5 +229,7 @@ void ifBranch(Expression *cond);
 void ifBranchEnd();
 void endIf();
 void labelIfBranch();
+Expression *doFunc(std::string, std::vector<Expression>);
+void doReturn(Expression *);
 
 #endif

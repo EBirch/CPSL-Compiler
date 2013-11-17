@@ -43,8 +43,8 @@ void yyerror(const char *str);
 %type <typeVal> Type SimpleType
 %type <recVal> RecordType 
 %type <arrVal> ArrayType
-%type <expr> Expression SimpleExprPrim LValue ForBegin ForMidTo ForMidDownto
-%type <exprList> ExprList MoreLVals Sublval
+%type <expr> Expression SimpleExprPrim LValue ForBegin ForMidTo ForMidDownto ProcedureCall Statement
+%type <exprList> ExprList MoreLVals Sublval Arguments MoreArgs
 // %type <none> program ConstantDecl MoreConst TypeDecl MoreType SimpleType RecordType ArrayType ProFuncDecl ProcedureDecl FunctionDecl Body Block StatementSequence MoreStatements Statement Assignment LValue Sublval Arguments MoreArgs IfStatement ElseIfs Else WhileStatement RepeatStatement ForStatement StopStatement ReturnStatement ReadStatement MoreLVals WriteStatement ProcedureCall NullStatement
 
 %left OR_SYM
@@ -65,12 +65,18 @@ void yyerror(const char *str);
 
 %%
 
-program: ConstantDecl TypeDecl VarDecl ProFuncDecl Block DOT_SYM{
+program: Declarations Block DOT_SYM{
       SymbolTable::getInstance()->popScope();
       SymbolTable::getInstance()->popScope();
       SymbolTable::getInstance()->emitEnd();
     }
   ;
+
+Declarations: ConstantDecl TypeDecl VarDecl ProFuncDecl{
+      emit<<"__main:"<<std::endl<<"move $fp, $sp"<<std::endl<<"move $gp, $fp"<<std::endl;
+    }
+  ;
+
 ConstantDecl:
   | CONST_SYM MoreConst IDENTIFIER_SYM EQUALS_SYM ConstExpression SEMICOLON_SYM{
       $5->name=$3;
@@ -174,6 +180,7 @@ VarDecl:
             }
           }
           Var var(*$5, SymbolTable::getInstance()->offset.back(), val);
+          SymbolTable::getInstance()->offset.back()+=$5->size;
           SymbolTable::getInstance()->addSymbol(val, var, true);
         });
     }
@@ -183,6 +190,7 @@ MoreVars:
       std::for_each($2->begin(), $2->end(), 
         [&](std::string val){
           Var var(*$4, SymbolTable::getInstance()->offset.back(), val);
+          SymbolTable::getInstance()->offset.back()+=$4->size;
           SymbolTable::getInstance()->addSymbol(val, var, true);
         });
     }
@@ -203,6 +211,7 @@ ProcedureStart: PROCEDURE_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_
       Function func(std::string($2), *$4, true);
       SymbolTable::getInstance()->addFunction($2, func);
       SymbolTable::getInstance()->pushScope(func);
+      emit<<func.location<<":"<<std::endl;
     }
   ;
 FunctionDecl: FUNCTION_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM COLON_SYM Type SEMICOLON_SYM FORWARD_SYM SEMICOLON_SYM{
@@ -211,12 +220,14 @@ FunctionDecl: FUNCTION_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM
     }
   | FunctionStart Body SEMICOLON_SYM{
       SymbolTable::getInstance()->popScope();
+      emit<<"jr $ra"<<std::endl;
     }
   ;
 FunctionStart: FUNCTION_SYM IDENTIFIER_SYM LPAREN_SYM FormalParameters RPAREN_SYM COLON_SYM Type SEMICOLON_SYM{
       Function func(std::string($2), *$7, *$4, true);
       SymbolTable::getInstance()->addFunction($2, func);
       SymbolTable::getInstance()->pushScope(func);
+      emit<<func.location<<":"<<std::endl;
     }
   ;
 FormalParameters: {
@@ -279,8 +290,10 @@ Statement: Assignment{
   | WriteStatement{
       SymbolTable::getInstance()->clearReg();
     } 
-  | ProcedureCall{
-      SymbolTable::getInstance()->clearReg();
+  | Expression{
+      $$=$1;
+      // std::cout<<"ProcedureCall\n";
+      // SymbolTable::getInstance()->clearReg();
     } 
   | NullStatement{
       SymbolTable::getInstance()->clearReg();
@@ -361,7 +374,9 @@ Expression: SimpleExprPrim{
   | LPAREN_SYM Expression RPAREN_SYM{
       $$=$2;
     }
-  | IDENTIFIER_SYM LPAREN_SYM Arguments RPAREN_SYM
+  | ProcedureCall{
+      $$=$1;
+    }
   | CHR_SYM LPAREN_SYM Expression RPAREN_SYM
   | ORD_SYM LPAREN_SYM Expression RPAREN_SYM
   | PRED_SYM LPAREN_SYM Expression RPAREN_SYM
@@ -453,11 +468,21 @@ ConstPrim: NUM_SYM{
       $$=new Const(std::string($1), Const::identType);
     }
   ;
-Arguments: 
-  | MoreArgs Expression
+Arguments: {
+      $$=new std::vector<Expression>();
+    }
+  | MoreArgs Expression{
+      $1->push_back(*$2);
+      $$=$1;
+    }
   ;
-MoreArgs:
-  | MoreArgs Expression COMMA_SYM
+MoreArgs: {
+      $$=new std::vector<Expression>();
+    }
+  | MoreArgs Expression COMMA_SYM{
+      $1->push_back(*$2);
+      $$=$1;
+    }
   ;
 IfStatement: IfMid ElseIfs Else END_SYM{
       endIf();
@@ -555,7 +580,9 @@ StopStatement: STOP_SYM{
       emit<<"li $v0, 10"<<std::endl<<"syscall"<<std::endl;
     }
   ;
-ReturnStatement: RETURN_SYM Expression
+ReturnStatement: RETURN_SYM Expression{
+      doReturn($2);
+    }
   | RETURN_SYM
   ;
 ReadStatement: READ_SYM LPAREN_SYM MoreLVals LValue RPAREN_SYM{
@@ -584,8 +611,9 @@ ExprList: {
       $$=$1;
     }
   ;
-ProcedureCall: IDENTIFIER_SYM LPAREN_SYM MoreArgs Expression RPAREN_SYM
-  | IDENTIFIER_SYM LPAREN_SYM RPAREN_SYM
+ProcedureCall: IDENTIFIER_SYM LPAREN_SYM Arguments RPAREN_SYM{
+      $$=doFunc($1, *$3);
+    }
   ;
 NullStatement:
   ;
@@ -610,7 +638,7 @@ int main(int argc, char **argv){
   std::string emitFile(argv[1]);
   emitFile+=".cpsl";
   emit.open(emitFile.data(), std::ios::out);
-  emit<<".text"<<std::endl<<".globl __main"<<std::endl<<"__main:"<<std::endl;
+  emit<<".text"<<std::endl<<".globl __main"<<std::endl<<"j __main"<<std::endl;
   yyin=temp;
   yyparse();
   emit.close();

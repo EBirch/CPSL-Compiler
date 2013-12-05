@@ -790,12 +790,16 @@ Expression *doFunc(std::string ident, std::vector<Expression> args){
       backupVars.push_back(std::make_pair(temp->location, -stackSpace));
       stackSpace-=4;
     });
+  int argMove=SymbolTable::getInstance()->getReg();
   emit<<"addi $sp, $sp, "<<stackSpace<<std::endl;
   emit<<"sw $ra, 0($sp)"<<std::endl;
   emit<<"sw $fp, 4($sp)"<<std::endl;
+  for(int i=0;i<backupVars.size();++i){
+    emit<<"lw $"<<argMove<<", "<<backupVars[i].first<<"($fp)"<<std::endl;
+    emit<<"sw $"<<argMove<<", "<<backupVars[i].second<<"($sp)"<<std::endl;
+  }
   emit<<"move $fp, $gp"<<std::endl;
   emit<<"addi $fp, $fp, "<<tempFunc->offset<<std::endl;
-  int argMove=SymbolTable::getInstance()->getReg();
   int stackRecover=8;
   for(int i=0;i<args.size();++i){
     if(args[i].type==Expression::intType){
@@ -813,10 +817,6 @@ Expression *doFunc(std::string ident, std::vector<Expression> args){
   }
   for(int i=0;i<SymbolTable::getInstance()->spillStack.size();++i){
     emit<<"sw $"<<SymbolTable::getInstance()->spillStack[i].first<<", "<<SymbolTable::getInstance()->spillStack[i].second<<"($sp)"<<std::endl;
-  }
-  for(int i=0;i<backupVars.size();++i){
-    emit<<"lw $"<<argMove<<", "<<backupVars[i].first<<"($fp)"<<std::endl;
-    emit<<"sw $"<<argMove<<", "<<backupVars[i].second<<"($sp)"<<std::endl;
   }
   emit<<"jal "<<label<<std::endl;
   emit<<"lw $ra, 0($sp)"<<std::endl;

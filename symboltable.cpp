@@ -472,8 +472,8 @@ Expression *getLval(std::vector<Expression> exprList){
             rootLoc+=((exprList[i].getVal<int>()-lastLower)*lastType->size);
           }
           else{
-            emit<<"lw $"<<tempReg<<", $"<<exprList[i].getVal<int>()<<std::endl;
-            emit<<"addi $"<<tempReg<<", $"<<tempReg<<(-lastLower)<<std::endl;
+            emit<<"lw $"<<tempReg<<", "<<exprList[i].getVal<int>()<<"($fp)"<<std::endl;
+            emit<<"addi $"<<tempReg<<", $"<<tempReg<<", "<<(-lastLower)<<std::endl;
             emit<<"li $"<<tempRegMult<<", "<<lastType->size<<std::endl;
             emit<<"mult $"<<tempReg<<", $"<<tempRegMult<<std::endl;
             emit<<"mflo $"<<tempReg<<std::endl;
